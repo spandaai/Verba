@@ -44,6 +44,18 @@ setup(
         "aiofiles==24.1.0",
         "assemblyai==0.33.0",
         "beautifulsoup4==4.12.3",
+        "fitz",
+        "python-pptx",
+        "python-docx",
+        "openpyxl",
+        "mammoth",
+        "xlrd",
+        "extract-msg",
+        "lxml",
+        "ebooklib",
+        "odfpy",
+        "sentence-transformers",
+        "tools"
     ],
     extras_require={
         "dev": ["pytest", "wheel", "twine", "black>=23.7.0", "setuptools"],
