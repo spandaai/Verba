@@ -35,6 +35,7 @@ from goldenverba.components.reader.GitReader import GitReader
 from goldenverba.components.reader.UnstructuredAPI import UnstructuredReader
 from goldenverba.components.reader.AssemblyAIAPI import AssemblyAIReader
 from goldenverba.components.reader.HTMLReader import HTMLReader
+from goldenverba.components.reader.CustomUnstructuredReader import CustomUnstructuredReader
 from goldenverba.components.reader.FirecrawlReader import FirecrawlReader
 
 # Import Chunkers
@@ -80,6 +81,7 @@ if production != "Production":
         HTMLReader(),
         GitReader(),
         UnstructuredReader(),
+        CustomUnstructuredReader(),
         AssemblyAIReader(),
         FirecrawlReader(),
     ]
@@ -114,6 +116,7 @@ else:
         HTMLReader(),
         GitReader(),
         UnstructuredReader(),
+        CustomUnstructuredReader,
         AssemblyAIReader(),
         FirecrawlReader(),
     ]
