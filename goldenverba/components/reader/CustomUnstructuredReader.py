@@ -3,15 +3,18 @@ import io
 from wasabi import msg
 
 # Import Unstructured library partition functions
-from unstructured.partition.auto import partition
-from unstructured.partition.pdf import partition_pdf
-from unstructured.partition.image import partition_image
-from unstructured.partition.docx import partition_docx
-from unstructured.partition.doc import partition_doc
-from unstructured.partition.xlsx import partition_xlsx
-from unstructured.partition.csv import partition_csv
-from unstructured.partition.pptx import partition_pptx
-from unstructured.partition.ppt import partition_ppt
+try:
+    from unstructured.partition.auto import partition
+    from unstructured.partition.pdf import partition_pdf
+    from unstructured.partition.image import partition_image
+    from unstructured.partition.docx import partition_docx
+    from unstructured.partition.doc import partition_doc
+    from unstructured.partition.xlsx import partition_xlsx
+    from unstructured.partition.csv import partition_csv
+    from unstructured.partition.pptx import partition_pptx
+    from unstructured.partition.ppt import partition_ppt
+except ImportError:
+    msg.warn("unstructured libraries not installed, OCR functionality will be limited.")
 
 from goldenverba.components.document import Document, create_document
 from goldenverba.components.interfaces import Reader
