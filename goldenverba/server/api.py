@@ -1,8 +1,9 @@
-from fastapi import FastAPI, WebSocket, Request
+from fastapi import FastAPI, WebSocket, Request, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 import asyncio
 
 from goldenverba.server.helpers import LoggerManager, BatchManager
@@ -263,7 +264,56 @@ async def websocket_import_files(websocket: WebSocket):
             break
 
 
-### CONFIG ENDPOINTS
+class DataBatchPayload(BaseModel):
+    fileID: str
+    credentials: dict
+    rag_config: dict
+    file_data: dict
+    total: int  # Add total number of chunks
+    order: int  # The current chunk number
+    chunk: str  # The chunk of data being sent
+    isLastChunk: bool  # To indicate if this is the last chunk
+
+
+
+# POST route to handle file imports
+@app.post("/api/import_file")
+async def import_file(payload: DataBatchPayload):
+    try:
+        logger = LoggerManager()  # No WebSocket logger, just a regular one
+        batcher = BatchManager()
+
+        # Add the batch to the batch manager
+        fileConfig = batcher.add_batch(payload)
+
+        if fileConfig is not None:
+            # Convert credentials dictionary to Credentials object
+            credentials_obj = Credentials(**payload.credentials)
+
+            # Log credentials to check if they are correctly structured
+            msg.info(f"Connecting client with credentials: {credentials_obj.url}")
+
+            # Pass the credentials object to the client manager
+            client = await client_manager.connect(credentials_obj)
+
+            # Log before importing the document
+            msg.info(f"Importing document with fileID: {payload.fileID}")
+
+            # Import the document (similar to the WebSocket task)
+            await asyncio.create_task(
+                manager.import_document(client, fileConfig, logger)
+            )
+
+            # Return success response after the import is complete
+            return JSONResponse(content={"status": "success", "message": "File imported successfully."}, status_code=200)
+
+    except Exception as e:
+        # Log the exception to understand the cause
+        msg.fail(f"Error while importing file: {str(e)}")
+
+        # Handle any exceptions and return an error response
+        return JSONResponse(content={"status": "error", "message": str(e)}, status_code=500)
+
 
 
 # Get Configuration
