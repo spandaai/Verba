@@ -1,5 +1,4 @@
 from setuptools import find_packages, setup
-
 setup(
     name="goldenverba",
     version="2.1.0",
@@ -55,7 +54,16 @@ setup(
         "ebooklib",
         "odfpy",
         "sentence-transformers",
-        "tools"
+        "tools",
+        # Added unstructured dependencies
+        "unstructured[all-docs]>=0.10.30",
+        "unstructured[docx]>=0.10.30",
+        "unstructured[pdf]>=0.10.30",
+        "unstructured[pptx]>=0.10.30",
+        "unstructured[xlsx]>=0.10.30",
+        "unstructured[local-inference]>=0.10.30",
+        "python-magic-bin; platform_system == 'Windows'",  # Only for Windows
+        "python-magic; platform_system != 'Windows'"       # For non-Windows systems
     ],
     extras_require={
         "dev": ["pytest", "wheel", "twine", "black>=23.7.0", "setuptools"],
