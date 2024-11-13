@@ -66,6 +66,7 @@ from goldenverba.components.generation.CohereGenerator import CohereGenerator
 from goldenverba.components.generation.AnthrophicGenerator import AnthropicGenerator
 from goldenverba.components.generation.OllamaGenerator import OllamaGenerator
 from goldenverba.components.generation.OpenAIGenerator import OpenAIGenerator
+from goldenverba.components.generation.GroqGenerator import GroqGenerator
 
 try:
     import tiktoken
@@ -109,6 +110,7 @@ if production != "Production":
         OpenAIGenerator(),
         AnthropicGenerator(),
         CohereGenerator(),
+        GroqGenerator(),
     ]
 else:
     readers = [
