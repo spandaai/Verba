@@ -264,7 +264,7 @@ async def websocket_import_files(websocket: WebSocket):
             break
 
 
-class DataBatchPayload(BaseModel):
+class DataBatchPayload1(BaseModel):
     fileID: str
     credentials: dict
     rag_config: dict
@@ -278,7 +278,7 @@ class DataBatchPayload(BaseModel):
 
 # POST route to handle file imports
 @app.post("/api/import_file")
-async def import_file(payload: DataBatchPayload):
+async def import_file(payload: DataBatchPayload1):
     try:
         logger = LoggerManager()  # No WebSocket logger, just a regular one
         batcher = BatchManager()
