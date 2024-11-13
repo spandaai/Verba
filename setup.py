@@ -61,6 +61,9 @@ setup(
         "unstructured[pdf]>=0.10.30",
         "unstructured[pptx]>=0.10.30",
         "unstructured[xlsx]>=0.10.30",
+        "unstructured[doc]>=0.10.30",
+        "unstructured[ppt]>=0.10.30",
+        "unstructured[text]>=0.10.30",
         "unstructured[local-inference]>=0.10.30",
         "python-magic-bin; platform_system == 'Windows'",  # Only for Windows
         "python-magic; platform_system != 'Windows'"       # For non-Windows systems
