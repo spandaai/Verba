@@ -1,7 +1,9 @@
 import base64
 import io
+import os
 import subprocess
-from typing import List, Optional
+import tempfile
+from typing import List, Optional, Tuple
 from wasabi import msg
 from goldenverba.components.document import Document, create_document
 from goldenverba.components.interfaces import Reader
@@ -31,14 +33,15 @@ Presentation = None
 
 class CustomUnstructuredReader(Reader):
     """
-    A reader that uses the Unstructured library primarily, with fallbacks only when necessary.
+    A reader that uses the Unstructured library primarily, with LibreOffice conversion
+    for legacy formats and additional fallbacks when necessary.
     Implements the Reader interface from goldenverba.components.interfaces.
     """
 
     def __init__(self):
         super().__init__()
         self.name = "UnstructuredLibrary"
-        self.description = "Ingests documents using Unstructured library with smart fallbacks"
+        self.description = "Ingests documents using Unstructured library with LibreOffice conversion and fallbacks"
         self.requires_library = ["unstructured"]
         self.extension = [
             "pdf", "xlsx", "csv", "docx", "doc", "pptx", "ppt", "txt"
@@ -46,7 +49,7 @@ class CustomUnstructuredReader(Reader):
         self._check_dependencies()
 
     def _check_dependencies(self) -> None:
-        """Check system dependencies for unstructured partitioning."""
+        """Check system dependencies for unstructured partitioning and LibreOffice."""
         self.has_poppler = False
         self.has_libreoffice = False
         
@@ -57,10 +60,11 @@ class CustomUnstructuredReader(Reader):
             msg.warn("Poppler not found - PDF processing may be limited")
 
         try:
-            subprocess.run(['soffice', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            process = subprocess.run(['soffice', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self.has_libreoffice = True
+            msg.good(f"LibreOffice found: {process.stdout.decode().strip()}")
         except FileNotFoundError:
-            msg.warn("LibreOffice not found - DOC/PPT processing may be limited")
+            msg.warn("LibreOffice not found - DOC/PPT processing will be limited")
 
     def _load_fallback_libraries(self, file_type: str) -> None:
         """Lazily load fallback libraries only when needed."""
@@ -87,6 +91,54 @@ class CustomUnstructuredReader(Reader):
                 from pptx import Presentation
             except ImportError:
                 msg.warn("python-pptx not installed")
+
+    def _convert_using_libreoffice(self, file_bytes: bytes, input_ext: str, output_ext: str) -> Optional[bytes]:
+        """
+        Convert a document using LibreOffice.
+        Args:
+            file_bytes: Input file content
+            input_ext: Input file extension (e.g., 'ppt', 'doc')
+            output_ext: Desired output extension (e.g., 'pptx', 'docx')
+        Returns:
+            Converted file bytes or None if conversion fails
+        """
+        if not self.has_libreoffice:
+            return None
+
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Write input file
+                input_path = os.path.join(temp_dir, f"input.{input_ext}")
+                with open(input_path, "wb") as f:
+                    f.write(file_bytes)
+
+                # Create output directory
+                output_dir = os.path.join(temp_dir, "output")
+                os.makedirs(output_dir, exist_ok=True)
+                
+                # Run LibreOffice conversion
+                process = subprocess.run([
+                    'soffice',
+                    '--headless',
+                    '--convert-to', output_ext,
+                    '--outdir', output_dir,
+                    input_path
+                ], capture_output=True)
+
+                if process.returncode != 0:
+                    msg.warn(f"LibreOffice conversion failed: {process.stderr.decode()}")
+                    return None
+
+                # Read converted file
+                output_path = os.path.join(output_dir, f"input.{output_ext}")
+                if os.path.exists(output_path):
+                    with open(output_path, "rb") as f:
+                        return f.read()
+
+        except Exception as e:
+            msg.warn(f"LibreOffice conversion failed: {str(e)}")
+
+        return None
 
     async def _process_pdf(self, file_bytes: bytes) -> str:
         """Process PDF with unstructured first, then fallbacks if needed."""
@@ -154,7 +206,17 @@ class CustomUnstructuredReader(Reader):
         return ""
 
     async def _process_doc(self, file_bytes: bytes) -> str:
-        """Process DOC with unstructured first, then fallback if needed."""
+        """Process DOC by converting to DOCX first, then fallback to other methods."""
+        # Try converting to DOCX first
+        if self.has_libreoffice:
+            msg.info("Attempting to convert DOC to DOCX using LibreOffice")
+            docx_bytes = self._convert_using_libreoffice(file_bytes, "doc", "docx")
+            if docx_bytes:
+                msg.good("Successfully converted DOC to DOCX")
+                return await self._process_docx(docx_bytes)
+            msg.warn("DOC to DOCX conversion failed, trying direct processing")
+
+        # If conversion fails, try direct processing
         try:
             if self.has_libreoffice:
                 file_obj = io.BytesIO(file_bytes)
@@ -162,11 +224,10 @@ class CustomUnstructuredReader(Reader):
                 text = "\n\n".join([str(el) for el in elements if hasattr(el, 'text')])
                 if text.strip():
                     return text
-                msg.warn("Unstructured DOC processing produced no text, trying fallback")
         except Exception as e:
-            msg.warn(f"Unstructured DOC processing failed: {str(e)}")
+            msg.warn(f"Direct DOC processing failed: {str(e)}")
 
-        # Try basic text extraction
+        # Last resort: try basic text extraction
         try:
             text = file_bytes.decode('utf-8', errors='ignore')
             if text.strip():
@@ -206,7 +267,17 @@ class CustomUnstructuredReader(Reader):
         return ""
 
     async def _process_ppt(self, file_bytes: bytes) -> str:
-        """Process PPT with unstructured first, then fallback if needed."""
+        """Process PPT by converting to PPTX first, then fallback to other methods."""
+        # Try converting to PPTX first
+        if self.has_libreoffice:
+            msg.info("Attempting to convert PPT to PPTX using LibreOffice")
+            pptx_bytes = self._convert_using_libreoffice(file_bytes, "ppt", "pptx")
+            if pptx_bytes:
+                msg.good("Successfully converted PPT to PPTX")
+                return await self._process_pptx(pptx_bytes)
+            msg.warn("PPT to PPTX conversion failed, trying direct processing")
+
+        # If conversion fails, try direct processing
         try:
             if self.has_libreoffice:
                 file_obj = io.BytesIO(file_bytes)
@@ -214,17 +285,21 @@ class CustomUnstructuredReader(Reader):
                 text = "\n\n".join([str(el) for el in elements if hasattr(el, 'text')])
                 if text.strip():
                     return text
-                msg.warn("Unstructured PPT processing produced no text, trying fallback")
         except Exception as e:
-            msg.warn(f"Unstructured PPT processing failed: {str(e)}")
+            msg.warn(f"Direct PPT processing failed: {str(e)}")
 
-        # Try basic text extraction
+        # Last resort: try basic text extraction
         try:
-            text = file_bytes.decode('utf-8', errors='ignore')
+            text = file_bytes.decode('utf-16le', errors='ignore')
             if text.strip():
                 return text
         except Exception as e:
-            msg.warn(f"Basic text extraction failed: {str(e)}")
+            try:
+                text = file_bytes.decode('utf-8', errors='ignore')
+                if text.strip():
+                    return text
+            except Exception as e:
+                msg.warn(f"Basic text extraction failed: {str(e)}")
         
         return ""
 
