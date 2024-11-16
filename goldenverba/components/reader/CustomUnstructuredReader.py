@@ -3,7 +3,7 @@ import io
 import os
 import subprocess
 import tempfile
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from wasabi import msg
 from goldenverba.components.document import Document, create_document
 from goldenverba.components.interfaces import Reader
@@ -33,15 +33,14 @@ Presentation = None
 
 class CustomUnstructuredReader(Reader):
     """
-    A reader that uses the Unstructured library primarily, with LibreOffice conversion
-    for legacy formats and additional fallbacks when necessary.
+    A reader that uses the Unstructured library primarily, with fallbacks when necessary.
     Implements the Reader interface from goldenverba.components.interfaces.
     """
 
     def __init__(self):
         super().__init__()
         self.name = "UnstructuredLibrary"
-        self.description = "Ingests documents using Unstructured library with LibreOffice conversion and fallbacks"
+        self.description = "Ingests documents using Unstructured library with smart fallbacks"
         self.requires_library = ["unstructured"]
         self.extension = [
             "pdf", "xlsx", "csv", "docx", "doc", "pptx", "ppt", "txt"
@@ -49,20 +48,38 @@ class CustomUnstructuredReader(Reader):
         self._check_dependencies()
 
     def _check_dependencies(self) -> None:
-        """Check system dependencies for unstructured partitioning and LibreOffice."""
+        """Check system dependencies including Poppler and LibreOffice."""
         self.has_poppler = False
         self.has_libreoffice = False
         
+        # Add Poppler to PATH explicitly
+        poppler_paths = [
+            r"C:\Program Files\poppler\bin",
+            r"C:\Program Files (x86)\poppler\bin",
+            r"C:\ProgramData\chocolatey\lib\poppler\tools\Library\bin"
+        ]
+        
+        # Add Poppler paths to environment
+        for poppler_path in poppler_paths:
+            if os.path.exists(poppler_path) and poppler_path not in os.environ.get('PATH', ''):
+                os.environ['PATH'] = poppler_path + os.pathsep + os.environ.get('PATH', '')
+        
         try:
-            subprocess.run(['pdfinfo', '-v'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.has_poppler = True
-        except FileNotFoundError:
-            msg.warn("Poppler not found - PDF processing may be limited")
+            result = subprocess.run(['pdfinfo', '-v'], 
+                                 capture_output=True, 
+                                 text=True)
+            if result.returncode == 0:
+                self.has_poppler = True
+                msg.good(f"Poppler found: {result.stdout.strip()}")
+        except Exception as e:
+            msg.warn(" ")
 
         try:
-            process = subprocess.run(['soffice', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(['soffice', '--version'], 
+                         capture_output=True, 
+                         text=True)
             self.has_libreoffice = True
-            msg.good(f"LibreOffice found: {process.stdout.decode().strip()}")
+            msg.good("LibreOffice found")
         except FileNotFoundError:
             msg.warn("LibreOffice not found - DOC/PPT processing will be limited")
 
@@ -93,30 +110,19 @@ class CustomUnstructuredReader(Reader):
                 msg.warn("python-pptx not installed")
 
     def _convert_using_libreoffice(self, file_bytes: bytes, input_ext: str, output_ext: str) -> Optional[bytes]:
-        """
-        Convert a document using LibreOffice.
-        Args:
-            file_bytes: Input file content
-            input_ext: Input file extension (e.g., 'ppt', 'doc')
-            output_ext: Desired output extension (e.g., 'pptx', 'docx')
-        Returns:
-            Converted file bytes or None if conversion fails
-        """
+        """Convert a document using LibreOffice."""
         if not self.has_libreoffice:
             return None
 
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
-                # Write input file
                 input_path = os.path.join(temp_dir, f"input.{input_ext}")
                 with open(input_path, "wb") as f:
                     f.write(file_bytes)
 
-                # Create output directory
                 output_dir = os.path.join(temp_dir, "output")
                 os.makedirs(output_dir, exist_ok=True)
                 
-                # Run LibreOffice conversion
                 process = subprocess.run([
                     'soffice',
                     '--headless',
@@ -125,15 +131,11 @@ class CustomUnstructuredReader(Reader):
                     input_path
                 ], capture_output=True)
 
-                if process.returncode != 0:
-                    msg.warn(f"LibreOffice conversion failed: {process.stderr.decode()}")
-                    return None
-
-                # Read converted file
-                output_path = os.path.join(output_dir, f"input.{output_ext}")
-                if os.path.exists(output_path):
-                    with open(output_path, "rb") as f:
-                        return f.read()
+                if process.returncode == 0:
+                    output_path = os.path.join(output_dir, f"input.{output_ext}")
+                    if os.path.exists(output_path):
+                        with open(output_path, "rb") as f:
+                            return f.read()
 
         except Exception as e:
             msg.warn(f"LibreOffice conversion failed: {str(e)}")
@@ -145,7 +147,7 @@ class CustomUnstructuredReader(Reader):
         try:
             if self.has_poppler:
                 file_obj = io.BytesIO(file_bytes)
-                elements = partition_pdf(file=file_obj, strategy="fast")
+                elements = partition_pdf(file=file_obj, strategy="hi_res")
                 text = "\n\n".join([str(el) for el in elements if hasattr(el, 'text')])
                 if text.strip():
                     return text
@@ -193,7 +195,6 @@ class CustomUnstructuredReader(Reader):
         except Exception as e:
             msg.warn(f"Unstructured DOCX processing failed: {str(e)}")
 
-        # Load fallback library only if needed
         self._load_fallback_libraries("docx")
         
         if docx:
@@ -207,16 +208,13 @@ class CustomUnstructuredReader(Reader):
 
     async def _process_doc(self, file_bytes: bytes) -> str:
         """Process DOC by converting to DOCX first, then fallback to other methods."""
-        # Try converting to DOCX first
         if self.has_libreoffice:
-            msg.info("Attempting to convert DOC to DOCX using LibreOffice")
+            msg.info("Converting DOC to DOCX")
             docx_bytes = self._convert_using_libreoffice(file_bytes, "doc", "docx")
             if docx_bytes:
-                msg.good("Successfully converted DOC to DOCX")
                 return await self._process_docx(docx_bytes)
             msg.warn("DOC to DOCX conversion failed, trying direct processing")
 
-        # If conversion fails, try direct processing
         try:
             if self.has_libreoffice:
                 file_obj = io.BytesIO(file_bytes)
@@ -227,7 +225,6 @@ class CustomUnstructuredReader(Reader):
         except Exception as e:
             msg.warn(f"Direct DOC processing failed: {str(e)}")
 
-        # Last resort: try basic text extraction
         try:
             text = file_bytes.decode('utf-8', errors='ignore')
             if text.strip():
@@ -249,7 +246,6 @@ class CustomUnstructuredReader(Reader):
         except Exception as e:
             msg.warn(f"Unstructured PPTX processing failed: {str(e)}")
 
-        # Load fallback library only if needed
         self._load_fallback_libraries("pptx")
         
         if Presentation:
@@ -268,16 +264,13 @@ class CustomUnstructuredReader(Reader):
 
     async def _process_ppt(self, file_bytes: bytes) -> str:
         """Process PPT by converting to PPTX first, then fallback to other methods."""
-        # Try converting to PPTX first
         if self.has_libreoffice:
-            msg.info("Attempting to convert PPT to PPTX using LibreOffice")
+            msg.info("Converting PPT to PPTX")
             pptx_bytes = self._convert_using_libreoffice(file_bytes, "ppt", "pptx")
             if pptx_bytes:
-                msg.good("Successfully converted PPT to PPTX")
                 return await self._process_pptx(pptx_bytes)
             msg.warn("PPT to PPTX conversion failed, trying direct processing")
 
-        # If conversion fails, try direct processing
         try:
             if self.has_libreoffice:
                 file_obj = io.BytesIO(file_bytes)
@@ -287,19 +280,6 @@ class CustomUnstructuredReader(Reader):
                     return text
         except Exception as e:
             msg.warn(f"Direct PPT processing failed: {str(e)}")
-
-        # Last resort: try basic text extraction
-        try:
-            text = file_bytes.decode('utf-16le', errors='ignore')
-            if text.strip():
-                return text
-        except Exception as e:
-            try:
-                text = file_bytes.decode('utf-8', errors='ignore')
-                if text.strip():
-                    return text
-            except Exception as e:
-                msg.warn(f"Basic text extraction failed: {str(e)}")
         
         return ""
 
