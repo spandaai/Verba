@@ -208,9 +208,12 @@ ollama run llama3
 
 ## Unstructured
 
+### Unstructured API
 Verba supports importing documents through Unstructured IO (e.g plain text, .pdf, .csv, and more). To use them you need the `UNSTRUCTURED_API_KEY` and `UNSTRUCTURED_API_URL` environment variable. You can get it from [Unstructured](https://unstructured.io/)
-
 > UNSTRUCTURED_API_URL is set to `https://api.unstructuredapp.io/general/v0/general` by default
+
+### UnstructuredLibrary
+Alternatively, you can use the UnstructuredLibrary for document processing without an API key. This requires installing some system dependencies (Tesseract, Poppler, LibreOffice). See our [Prerequisites Installation Guide](./Unstructured_components.md) for detailed setup instructions.
 
 ## AssemblyAI
 
