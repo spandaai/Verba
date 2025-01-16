@@ -27,17 +27,29 @@ except ImportError:
     msg.warn("python-docx not installed, DOCX functionality will be limited.")
     docx = None
 
+try:
+    from pptx import Presentation
+except ImportError:
+    msg.warn("python-pptx not installed, PPTX functionality will be limited.")
+    Presentation = None
+
+try:
+    import olefile
+except ImportError:
+    msg.warn("olefile not installed, DOC functionality may be limited.")
+    olefile = None
+
 
 class BasicReader(Reader):
     """
-    The BasicReader reads text, code, PDF, and DOCX files.
+    The BasicReader reads text, code, PDF, DOCX, PPTX, and DOC files.
     """
 
     def __init__(self):
         super().__init__()
         self.name = "Default"
-        self.description = "Ingests text, code, PDF, and DOCX files"
-        self.requires_library = ["pypdf", "docx", "spacy"]
+        self.description = "Ingests text, code, PDF, DOCX, PPTX, and DOC files"
+        self.requires_library = ["pypdf", "docx", "spacy", "python-pptx", "olefile"]
         self.extension = [
             ".txt",
             ".py",
@@ -52,6 +64,7 @@ class BasicReader(Reader):
             ".pptx",
             ".xlsx",
             ".csv",
+            ".doc",
             ".ts",
             ".tsx",
             ".vue",
@@ -68,7 +81,7 @@ class BasicReader(Reader):
             ".cpp",
             ".h",
             ".hpp",
-        ]  # Add supported text extensions
+        ]
 
         # Initialize spaCy model if available
         self.nlp = spacy.blank("en") if spacy else None
@@ -93,6 +106,10 @@ class BasicReader(Reader):
                 file_content = await self.load_pdf_file(decoded_bytes)
             elif fileConfig.extension.lower() == "docx":
                 file_content = await self.load_docx_file(decoded_bytes)
+            elif fileConfig.extension.lower() == "pptx":
+                file_content = await self.load_pptx_file(decoded_bytes)
+            elif fileConfig.extension.lower() == "doc":
+                file_content = await self.load_doc_file(decoded_bytes)
             elif fileConfig.extension.lower() in [
                 ext.lstrip(".") for ext in self.extension
             ]:
@@ -115,7 +132,6 @@ class BasicReader(Reader):
         try:
             return decoded_bytes.decode("utf-8")
         except UnicodeDecodeError:
-            # Fallback to latin-1 if UTF-8 fails
             return decoded_bytes.decode("latin-1")
 
     async def load_json_file(
@@ -150,3 +166,35 @@ class BasicReader(Reader):
         docx_bytes = io.BytesIO(decoded_bytes)
         reader = docx.Document(docx_bytes)
         return "\n".join(paragraph.text for paragraph in reader.paragraphs)
+
+    async def load_pptx_file(self, decoded_bytes: bytes) -> str:
+        """Load and extract text from a PPTX file."""
+        if not Presentation:
+            raise ImportError(
+                "python-pptx is not installed. Cannot process PPTX files."
+            )
+        pptx_bytes = io.BytesIO(decoded_bytes)
+        presentation = Presentation(pptx_bytes)
+        slides_text = []
+        for slide in presentation.slides:
+            slide_content = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    slide_content.append(shape.text)
+            slides_text.append("\n".join(slide_content))
+        return "\n\n".join(slides_text)
+
+    async def load_doc_file(self, decoded_bytes: bytes) -> str:
+        """Load and extract text from a DOC file (if supported)."""
+        if not olefile:
+            raise ImportError("olefile is not installed. Cannot process DOC files.")
+        try:
+            with io.BytesIO(decoded_bytes) as doc_stream:
+                ole = olefile.OleFileIO(doc_stream)
+                if ole.exists("WordDocument"):
+                    with ole.openstream("WordDocument") as stream:
+                        return stream.read().decode("latin-1")
+                else:
+                    raise ValueError("DOC file does not contain a WordDocument stream.")
+        except Exception as e:
+            raise ValueError(f"Failed to process DOC file: {str(e)}")
